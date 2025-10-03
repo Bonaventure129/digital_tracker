@@ -6,12 +6,12 @@
     <title>Live RFID Tracking Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
-        #map { height: 70vh; border-radius: 0.75rem; }
+        #map { height: 75vh; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
         .tab-btn { transition: background-color 0.2s, color 0.2s; }
         .tab-btn.active { background-color: #4f46e5; color: white; }
         .tab-btn:not(.active) { background-color: #e0e7ff; color: #4338ca; }
@@ -30,7 +30,7 @@
         <header class="bg-white text-slate-800 p-6 rounded-xl shadow-lg mb-6">
             <h1 class="text-3xl font-bold text-indigo-700">Live RFID Tracking Dashboard</h1>
             <p class="mt-1 text-slate-500">
-                Listening for data on MQTT topic: <span class="font-mono bg-slate-100 px-1 rounded">esp32/rfid/data</span>
+                Listening for data from your ESP32 device.
             </p>
             <div id="status" class="mt-4 text-sm font-medium p-2 rounded-lg inline-block bg-yellow-400 text-yellow-800">
                 STATUS: Connecting to MQTT Broker...
@@ -40,24 +40,19 @@
         <div class="mb-6 flex space-x-2 p-1 bg-indigo-100 rounded-lg">
             <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold active" onclick="showTab('log')">Live Log</button>
             <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('map')">Map View</button>
-            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('settings')">Settings & Registration</button>
+            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('settings')">Device Settings & Registration</button>
         </div>
 
         <main>
             <div id="log" class="tab-content active bg-white p-6 rounded-xl shadow-lg">
-                <div class="flex justify-between items-center mb-4">
-                     <h2 class="text-xl font-semibold text-gray-800">Scan Data Log</h2>
-                     <button id="clear-log-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300">
-                        Clear Log Display
-                    </button>
-                </div>
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Real-time Scan Data Log</h2>
                 <div class="max-h-[70vh] overflow-y-auto">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="sticky top-0 bg-gray-50 z-10">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Identifier</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Identifier</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
                             </tr>
                         </thead>
                         <tbody id="log-table-body" class="bg-white divide-y divide-gray-200"></tbody>
@@ -65,42 +60,59 @@
                 </div>
             </div>
 
-            <div id="map" class="tab-content bg-white p-6 rounded-xl shadow-lg">
-                 <h2 class="text-xl font-semibold text-gray-800 mb-4">Last Scanned Location</h2>
-                 <div id="map-container" class="w-full h-[70vh] rounded-lg z-0"></div>
-            </div>
+            <div id="map" class="tab-content"></div>
 
-            <div id="settings" class="tab-content bg-white p-6 rounded-xl shadow-lg grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div>
-                    <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Register RFID Tag</h2>
-                    <div class="space-y-4">
-                        <div>
-                            <label for="reg-uid" class="block text-sm font-medium text-gray-700">Last Scanned UID</label>
-                            <input type="text" id="reg-uid" class="mt-1 block w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md shadow-sm" placeholder="Scan a card to populate" readonly>
-                        </div>
-                        <div>
-                            <label for="reg-name" class="block text-sm font-medium text-gray-700">Assign Name</label>
-                            <input type="text" id="reg-name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g., Main Entrance Key">
-                        </div>
-                        <button id="register-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md">Register Name</button>
+            <div id="settings" class="tab-content">
+                <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+                    <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">ESP32 Device Status</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div><span class="font-bold text-gray-600">IP Address:</span> <span id="status-ip" class="font-mono text-indigo-700">Waiting...</span></div>
+                        <div><span class="font-bold text-gray-600">Connected Wi-Fi:</span> <span id="status-ssid" class="font-mono text-indigo-700">Waiting...</span></div>
+                        <div><span class="font-bold text-gray-600">SD Card Usage:</span> <span id="status-sd" class="font-mono text-indigo-700">Waiting...</span></div>
+                        <div><span class="font-bold text-gray-600">Device Uptime:</span> <span id="status-uptime" class="font-mono text-indigo-700">Waiting...</span></div>
                     </div>
                 </div>
 
-                <div>
-                    <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Configure ESP32 Wi-Fi</h2>
-                    <p class="text-sm text-amber-700 bg-amber-100 p-3 rounded-md mb-4">
-                        <strong>Warning:</strong> Use this only when the ESP32 is online. Submitting will save the credentials and reboot the device.
-                    </p>
-                    <div class="space-y-4">
-                        <div>
-                            <label for="wifi-ssid" class="block text-sm font-medium text-gray-700">Wi-Fi Network Name (SSID)</label>
-                            <input type="text" id="wifi-ssid" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Your Wi-Fi Name">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Device Management</h2>
+                        <div class="space-y-4">
+                            <a id="download-log-btn" href="#" target="_blank" class="block w-full text-center bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow-md opacity-50 cursor-not-allowed">Download Full Log (.csv)</a>
+                            <button id="clear-log-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg shadow-md">Clear All SD Card Logs</button>
                         </div>
-                        <div>
-                            <label for="wifi-pass" class="block text-sm font-medium text-gray-700">Password</label>
-                            <input type="password" id="wifi-pass" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Register RFID Tag</h2>
+                        <div class="space-y-4">
+                            <div>
+                                <label for="reg-uid" class="block text-sm font-medium text-gray-700">Last Scanned UID</label>
+                                <input type="text" id="reg-uid" class="mt-1 block w-full px-3 py-2 bg-gray-100 border rounded-md" readonly>
+                            </div>
+                            <div>
+                                <label for="reg-name" class="block text-sm font-medium text-gray-700">Assign Name</label>
+                                <input type="text" id="reg-name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="e.g., Main Gate Key">
+                            </div>
+                            <button id="register-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Register Name</button>
                         </div>
-                        <button id="wifi-update-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md">Update Wi-Fi & Reboot ESP32</button>
+                    </div>
+                    
+                    <div class="md:col-span-2 bg-white p-6 rounded-xl shadow-lg">
+                         <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Configure ESP32 Wi-Fi</h2>
+                        <p class="text-sm text-amber-700 bg-amber-100 p-3 rounded-md mb-4">
+                            <strong>Warning:</strong> Submitting will save credentials to the SD card and reboot the device.
+                        </p>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                            <div class="md:col-span-1">
+                                <label for="wifi-ssid" class="block text-sm font-medium text-gray-700">Wi-Fi Network (SSID)</label>
+                                <input type="text" id="wifi-ssid" class="mt-1 block w-full border border-gray-300 rounded-md p-2">
+                            </div>
+                            <div class="md:col-span-1">
+                                <label for="wifi-pass" class="block text-sm font-medium text-gray-700">Password</label>
+                                <input type="password" id="wifi-pass" class="mt-1 block w-full border border-gray-300 rounded-md p-2">
+                            </div>
+                            <button id="wifi-update-btn" class="md:col-span-1 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Update & Reboot</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -108,169 +120,195 @@
     </div>
 
     <script>
-        // --- Global Elements ---
-        const statusElement = document.getElementById("status");
-        const tableBody = document.getElementById("log-table-body");
-        const lastUidInput = document.getElementById('reg-uid');
-        
+        // --- Global State ---
+        let esp32_ip = null;
+        let registered_names = {};
+        let map;
+        let lastMarker;
+
         // --- MQTT Configuration ---
         const MQTT_BROKER_HOST = "broker.hivemq.com";
-        const MQTT_BROKER_PORT = 8884;
+        const MQTT_BROKER_PORT = 8884; // Port for WSS (WebSocket Secure)
         const MQTT_DATA_TOPIC = "esp32/rfid/data";
-        const MQTT_CONFIG_TOPIC = "esp32/rfid/config/wifi";
+        const MQTT_STATUS_TOPIC = "esp32/rfid/status";
+        const MQTT_COMMAND_TOPIC = "esp32/rfid/command";
         const MQTT_CLIENT_ID = "WebAppClient_" + Math.random().toString(16).substr(2, 8);
 
-        // --- Map Initialization ---
-        let map;
-        let marker;
-        function initializeMap() {
-            // Default view set to Nigeria
-            map = L.map('map-container').setView([9.0820, 8.6753], 6);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 19,
-                attribution: '© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            }).addTo(map);
-            marker = L.marker([9.0820, 8.6753]).addTo(map)
-                .bindPopup('Last scanned location will appear here.')
-                .openPopup();
-        }
-
-        // --- Tab Navigation ---
-        function showTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(tabName).classList.add('active');
-            document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
-            // Invalidate map size when its tab is shown to fix rendering issues
-            if (tabName === 'map') {
-                setTimeout(() => map.invalidateSize(), 10);
-            }
-        }
-
-        function updateStatus(message, bgColor) {
-            statusElement.textContent = `STATUS: ${message}`;
-            statusElement.className = `mt-4 text-sm font-medium p-2 rounded-lg inline-block ${bgColor}`;
-        }
-        
         // --- MQTT Client Setup ---
         const client = new Paho.Client(MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_CLIENT_ID);
         client.onConnectionLost = onConnectionLost;
         client.onMessageArrived = onMessageArrived;
-        client.connect({ 
-            onSuccess: onConnect,
-            onFailure: onFailure,
-            useSSL: true 
-        });
+        client.connect({ onSuccess: onConnect, onFailure: onFailure, useSSL: true }); // <-- `onFailure` is now defined below
+
+        // ======================= FIX 1: ADDED MISSING `onFailure` FUNCTION =======================
+        function onFailure(responseObject) {
+            console.error("MQTT Connection Failed:", responseObject.errorMessage);
+            updateStatus(`Connection Failed: ${responseObject.errorMessage}`, "bg-red-100 text-red-800");
+        }
 
         function onConnect() {
-            updateStatus("Connected & Listening", "bg-green-100 text-green-800");
+            updateStatus("Connected & Listening for Device", "bg-green-100 text-green-800");
             client.subscribe(MQTT_DATA_TOPIC);
+            client.subscribe(MQTT_STATUS_TOPIC);
         }
         
-        function onFailure(response) {
-            updateStatus(`Connection Failed: ${response.errorMessage}`, "bg-red-100 text-red-800");
-        }
-
-        function onConnectionLost(responseObject) {
-            if (responseObject.errorCode !== 0) {
-                updateStatus("Connection Lost. Reconnecting...", "bg-red-100 text-red-800");
-            }
-        }
-
-        // --- Main Logic: Handle Incoming Data ---
+        // --- Message Handlers ---
         function onMessageArrived(message) {
+            const topic = message.destinationName;
+            const payload = message.payloadString;
             try {
-                const data = JSON.parse(message.payloadString);
-                
-                // Update the registration form with the latest UID
-                lastUidInput.value = data.identifier;
-
-                // Check for a registered name
-                const registeredName = localStorage.getItem(data.identifier);
-                const displayName = registeredName ? `${registeredName} (${data.identifier})` : data.identifier;
-
-                // Insert data into the log table
-                insertDataRow(data.timestamp, displayName, data.latitude, data.longitude);
-                
-                // Update the map
-                if(map && data.latitude !== "0.0") {
-                    const newLatLng = [parseFloat(data.latitude), parseFloat(data.longitude)];
-                    map.setView(newLatLng, 15); // Zoom in on the new location
-                    marker.setLatLng(newLatLng)
-                          .setPopupContent(`<b>${displayName}</b><br>${data.timestamp}`)
-                          .openPopup();
+                const data = JSON.parse(payload);
+                if (topic === MQTT_DATA_TOPIC) {
+                    handleDataMessage(data);
+                } else if (topic === MQTT_STATUS_TOPIC) {
+                    handleStatusMessage(data);
                 }
-            } catch (e) {
-                console.error("Error processing message:", e);
-            }
+            } catch (e) { console.error("Error processing message:", e); }
         }
 
-        function insertDataRow(timestamp, identifier, lat, lon) {
-            const newRow = tableBody.insertRow(0);
-            newRow.className = "highlight";
+        function handleDataMessage(data) {
+            document.getElementById('reg-uid').value = data.identifier;
+            const displayName = registered_names[data.identifier] 
+                ? `${registered_names[data.identifier]} (${data.identifier})` 
+                : data.identifier;
+            
+            insertDataRow(data.timestamp, displayName, data.latitude, data.longitude, data.identifier);
+            updateMap(displayName, data.latitude, data.longitude);
+        }
 
-            const cellTime = newRow.insertCell();
-            cellTime.className = "px-6 py-4 whitespace-nowrap text-sm text-gray-900";
-            cellTime.textContent = timestamp;
-
-            const cellId = newRow.insertCell();
-            cellId.className = "px-6 py-4 whitespace-nowrap text-sm font-semibold text-indigo-800";
-            cellId.textContent = identifier;
-
-            const cellLoc = newRow.insertCell();
-            cellLoc.className = "px-6 py-4 whitespace-nowrap text-sm";
-            if (lat !== "0.0") {
-                cellLoc.innerHTML = `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" class="text-blue-600 hover:underline">View on Google Maps</a>`;
+        function handleStatusMessage(data) {
+            console.log("Status update:", data);
+            esp32_ip = data.ip;
+            document.getElementById('status-ip').textContent = data.ip || 'N/A';
+            document.getElementById('status-ssid').textContent = data.ssid || 'N/A';
+            document.getElementById('status-uptime').textContent = data.uptime_ms ? `${(data.uptime_ms / 1000 / 60).toFixed(2)} mins` : 'N/A';
+            
+            if(data.sd_total_gb) {
+                 document.getElementById('status-sd').textContent = `${data.sd_used_gb.toFixed(3)} / ${data.sd_total_gb.toFixed(2)} GB`;
             } else {
-                cellLoc.textContent = "N/A";
+                 document.getElementById('status-sd').textContent = data.sd_status || 'N/A';
+            }
+
+            if (esp32_ip && esp32_ip !== "0.0.0.0") {
+                const downloadBtn = document.getElementById('download-log-btn');
+                downloadBtn.href = `http://${esp32_ip}/downloadlog`;
+                downloadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+            
+            if (data.registered_names) {
+                registered_names = data.registered_names;
             }
         }
         
-        // --- Event Listeners for Buttons ---
-        
-        // RFID Registration
+        // --- UI & Event Listeners ---
+        document.getElementById('wifi-update-btn').addEventListener('click', () => {
+            const ssid = document.getElementById('wifi-ssid').value;
+            const password = document.getElementById('wifi-pass').value;
+            if (!ssid) { alert('SSID cannot be empty.'); return; }
+            if (confirm(`Send new Wi-Fi credentials to ESP32?\n\nSSID: ${ssid}\n\nThe device will reboot.`)) {
+                sendCommand({ action: "update_wifi", ssid: ssid, password: password });
+            }
+        });
+
         document.getElementById('register-btn').addEventListener('click', () => {
             const uid = document.getElementById('reg-uid').value;
             const name = document.getElementById('reg-name').value;
             if (uid && name) {
-                localStorage.setItem(uid, name);
-                alert(`Registered "${name}" to UID ${uid}`);
+                sendCommand({ action: "register_card", uid: uid, name: name });
+                alert(`Registration command sent for "${name}"`);
                 document.getElementById('reg-name').value = '';
             } else {
                 alert('Please ensure a UID is present and a name is entered.');
             }
         });
 
-        // Wi-Fi Update
-        document.getElementById('wifi-update-btn').addEventListener('click', () => {
-            const ssid = document.getElementById('wifi-ssid').value;
-            const password = document.getElementById('wifi-pass').value;
-
-            if (!ssid) {
-                alert('Wi-Fi SSID cannot be empty.');
-                return;
-            }
-
-            if (confirm(`Are you sure you want to send these credentials to the ESP32?\n\nSSID: ${ssid}\n\nThe device will reboot.`)) {
-                const payload = JSON.stringify({ ssid, password });
-                const message = new Paho.Message(payload);
-                message.destinationName = MQTT_CONFIG_TOPIC;
-                client.send(message);
-                alert('Configuration command sent! The ESP32 should reboot with the new credentials.');
-            }
-        });
-        
-        // Clear Log Button
         document.getElementById('clear-log-btn').addEventListener('click', () => {
-             if (confirm('Are you sure you want to clear the log display on this page?')) {
-                tableBody.innerHTML = '';
-             }
+            if (confirm('DANGER! This will permanently delete the entire datalog.csv file from the ESP32 SD card. Are you absolutely sure?')) {
+                sendCommand({ action: "clear_log" });
+                alert('Command to clear log has been sent.');
+            }
         });
+
+        function sendCommand(payload) {
+            const message = new Paho.Message(JSON.stringify(payload));
+            message.destinationName = MQTT_COMMAND_TOPIC;
+            client.send(message);
+        }
+
+        // --- Helper Functions ---
+        function insertDataRow(timestamp, displayName, lat, lon, rawIdentifier) {
+            const newRow = document.getElementById('log-table-body').insertRow(0);
+            newRow.className = "highlight";
+            newRow.insertCell().textContent = timestamp;
+
+            const nameCell = newRow.insertCell();
+            nameCell.textContent = displayName;
+            
+            // If the name is a registered name, make the raw ID smaller
+            if (displayName !== rawIdentifier) {
+                 nameCell.innerHTML = `${registered_names[rawIdentifier]} <span class="text-xs text-gray-400">(${rawIdentifier})</span>`;
+            }
+
+            const cellLoc = newRow.insertCell();
+            if (lat !== "0.0" && lon !== "0.0") {
+                // ======================= FIX 2: CORRECTED GOOGLE MAPS LINK =======================
+                cellLoc.innerHTML = `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" class="text-blue-600 hover:underline">View Map</a>`;
+            } else {
+                cellLoc.textContent = "N/A";
+            }
+        }
         
-        // --- Initialize Page ---
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                updateStatus("Connection Lost. Reconnecting...", "bg-red-100 text-red-800");
+            }
+        }
+        
+        function updateStatus(message, bgColor) {
+            const statusEl = document.getElementById("status");
+            statusEl.textContent = `STATUS: ${message}`;
+            statusEl.className = `mt-4 text-sm font-medium p-2 rounded-lg inline-block ${bgColor}`;
+        }
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
+            // Invalidate map size when tab is shown to prevent gray tiles
+            if (tabName === 'map' && map) {
+                setTimeout(() => map.invalidateSize(), 10);
+            }
+        }
+
+        // ======================= FIX 2 (CONT.): MAP INITIALIZATION & UPDATE LOGIC =======================
+        function initializeMap() {
+            map = L.map('map').setView([9.0765, 7.3986], 6); // Default view (e.g., Nigeria)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+        }
+
+        function updateMap(displayName, lat, lon) {
+            if (lat === "0.0" || lon === "0.0" || !map) return;
+            
+            const latNum = parseFloat(lat);
+            const lonNum = parseFloat(lon);
+
+            if (lastMarker) {
+                map.removeLayer(lastMarker);
+            }
+
+            lastMarker = L.marker([latNum, lonNum]).addTo(map)
+                .bindPopup(`<b>Last Scan:</b><br>${displayName}`)
+                .openPopup();
+            
+            map.setView([latNum, lonNum], 15);
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            showTab('log');
             initializeMap();
-            showTab('log'); // Show the log tab by default
         });
     </script>
 </body>
