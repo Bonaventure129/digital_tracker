@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live RFID Tracking Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        #map { height: 70vh; border-radius: 0.75rem; }
+        .tab-btn { transition: background-color 0.2s, color 0.2s; }
+        .tab-btn.active { background-color: #4f46e5; color: white; }
+        .tab-btn:not(.active) { background-color: #e0e7ff; color: #4338ca; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .highlight { animation: fadein 0.7s ease-out; }
+        @keyframes fadein { from { background-color: #c7d2fe; } to { background-color: transparent; } }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+    <div class="max-w-7xl mx-auto">
+        <div class="text-center mb-4 text-sm font-bold text-gray-500">
+            Powered by CONRAD ROBOTICS
+        </div>
+
+        <header class="bg-white text-slate-800 p-6 rounded-xl shadow-lg mb-6">
+            <h1 class="text-3xl font-bold text-indigo-700">Live RFID Tracking Dashboard</h1>
+            <p class="mt-1 text-slate-500">
+                Listening for data on MQTT topic: <span class="font-mono bg-slate-100 px-1 rounded">esp32/rfid/data</span>
+            </p>
+            <div id="status" class="mt-4 text-sm font-medium p-2 rounded-lg inline-block bg-yellow-400 text-yellow-800">
+                STATUS: Connecting to MQTT Broker...
+            </div>
+        </header>
+
+        <div class="mb-6 flex space-x-2 p-1 bg-indigo-100 rounded-lg">
+            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold active" onclick="showTab('log')">Live Log</button>
+            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('map')">Map View</button>
+            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('settings')">Settings & Registration</button>
+        </div>
+
+        <main>
+            <div id="log" class="tab-content active bg-white p-6 rounded-xl shadow-lg">
+                <div class="flex justify-between items-center mb-4">
+                     <h2 class="text-xl font-semibold text-gray-800">Scan Data Log</h2>
+                     <button id="clear-log-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300">
+                        Clear Log Display
+                    </button>
+                </div>
+                <div class="max-h-[70vh] overflow-y-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="sticky top-0 bg-gray-50 z-10">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Identifier</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="map" class="tab-content bg-white p-6 rounded-xl shadow-lg">
+                 <h2 class="text-xl font-semibold text-gray-800 mb-4">Last Scanned Location</h2>
+                 <div id="map-container" class="w-full h-[70vh] rounded-lg z-0"></div>
+            </div>
+
+            <div id="settings" class="tab-content bg-white p-6 rounded-xl shadow-lg grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Register RFID Tag</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="reg-uid" class="block text-sm font-medium text-gray-700">Last Scanned UID</label>
+                            <input type="text" id="reg-uid" class="mt-1 block w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md shadow-sm" placeholder="Scan a card to populate" readonly>
+                        </div>
+                        <div>
+                            <label for="reg-name" class="block text-sm font-medium text-gray-700">Assign Name</label>
+                            <input type="text" id="reg-name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g., Main Entrance Key">
+                        </div>
+                        <button id="register-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md">Register Name</button>
+                    </div>
+                </div>
+
+                <div>
+                    <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Configure ESP32 Wi-Fi</h2>
+                    <p class="text-sm text-amber-700 bg-amber-100 p-3 rounded-md mb-4">
+                        <strong>Warning:</strong> Use this only when the ESP32 is online. Submitting will save the credentials and reboot the device.
+                    </p>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="wifi-ssid" class="block text-sm font-medium text-gray-700">Wi-Fi Network Name (SSID)</label>
+                            <input type="text" id="wifi-ssid" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Your Wi-Fi Name">
+                        </div>
+                        <div>
+                            <label for="wifi-pass" class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" id="wifi-pass" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <button id="wifi-update-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md">Update Wi-Fi & Reboot ESP32</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- Global Elements ---
+        const statusElement = document.getElementById("status");
+        const tableBody = document.getElementById("log-table-body");
+        const lastUidInput = document.getElementById('reg-uid');
+        
+        // --- MQTT Configuration ---
+        const MQTT_BROKER_HOST = "broker.hivemq.com";
+        const MQTT_BROKER_PORT = 8884;
+        const MQTT_DATA_TOPIC = "esp32/rfid/data";
+        const MQTT_CONFIG_TOPIC = "esp32/rfid/config/wifi";
+        const MQTT_CLIENT_ID = "WebAppClient_" + Math.random().toString(16).substr(2, 8);
+
+        // --- Map Initialization ---
+        let map;
+        let marker;
+        function initializeMap() {
+            // Default view set to Nigeria
+            map = L.map('map-container').setView([9.0820, 8.6753], 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+            marker = L.marker([9.0820, 8.6753]).addTo(map)
+                .bindPopup('Last scanned location will appear here.')
+                .openPopup();
+        }
+
+        // --- Tab Navigation ---
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
+            // Invalidate map size when its tab is shown to fix rendering issues
+            if (tabName === 'map') {
+                setTimeout(() => map.invalidateSize(), 10);
+            }
+        }
+
+        function updateStatus(message, bgColor) {
+            statusElement.textContent = `STATUS: ${message}`;
+            statusElement.className = `mt-4 text-sm font-medium p-2 rounded-lg inline-block ${bgColor}`;
+        }
+        
+        // --- MQTT Client Setup ---
+        const client = new Paho.Client(MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_CLIENT_ID);
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+        client.connect({ 
+            onSuccess: onConnect,
+            onFailure: onFailure,
+            useSSL: true 
+        });
+
+        function onConnect() {
+            updateStatus("Connected & Listening", "bg-green-100 text-green-800");
+            client.subscribe(MQTT_DATA_TOPIC);
+        }
+        
+        function onFailure(response) {
+            updateStatus(`Connection Failed: ${response.errorMessage}`, "bg-red-100 text-red-800");
+        }
+
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                updateStatus("Connection Lost. Reconnecting...", "bg-red-100 text-red-800");
+            }
+        }
+
+        // --- Main Logic: Handle Incoming Data ---
+        function onMessageArrived(message) {
+            try {
+                const data = JSON.parse(message.payloadString);
+                
+                // Update the registration form with the latest UID
+                lastUidInput.value = data.identifier;
+
+                // Check for a registered name
+                const registeredName = localStorage.getItem(data.identifier);
+                const displayName = registeredName ? `${registeredName} (${data.identifier})` : data.identifier;
+
+                // Insert data into the log table
+                insertDataRow(data.timestamp, displayName, data.latitude, data.longitude);
+                
+                // Update the map
+                if(map && data.latitude !== "0.0") {
+                    const newLatLng = [parseFloat(data.latitude), parseFloat(data.longitude)];
+                    map.setView(newLatLng, 15); // Zoom in on the new location
+                    marker.setLatLng(newLatLng)
+                          .setPopupContent(`<b>${displayName}</b><br>${data.timestamp}`)
+                          .openPopup();
+                }
+            } catch (e) {
+                console.error("Error processing message:", e);
+            }
+        }
+
+        function insertDataRow(timestamp, identifier, lat, lon) {
+            const newRow = tableBody.insertRow(0);
+            newRow.className = "highlight";
+
+            const cellTime = newRow.insertCell();
+            cellTime.className = "px-6 py-4 whitespace-nowrap text-sm text-gray-900";
+            cellTime.textContent = timestamp;
+
+            const cellId = newRow.insertCell();
+            cellId.className = "px-6 py-4 whitespace-nowrap text-sm font-semibold text-indigo-800";
+            cellId.textContent = identifier;
+
+            const cellLoc = newRow.insertCell();
+            cellLoc.className = "px-6 py-4 whitespace-nowrap text-sm";
+            if (lat !== "0.0") {
+                cellLoc.innerHTML = `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" class="text-blue-600 hover:underline">View on Google Maps</a>`;
+            } else {
+                cellLoc.textContent = "N/A";
+            }
+        }
+        
+        // --- Event Listeners for Buttons ---
+        
+        // RFID Registration
+        document.getElementById('register-btn').addEventListener('click', () => {
+            const uid = document.getElementById('reg-uid').value;
+            const name = document.getElementById('reg-name').value;
+            if (uid && name) {
+                localStorage.setItem(uid, name);
+                alert(`Registered "${name}" to UID ${uid}`);
+                document.getElementById('reg-name').value = '';
+            } else {
+                alert('Please ensure a UID is present and a name is entered.');
+            }
+        });
+
+        // Wi-Fi Update
+        document.getElementById('wifi-update-btn').addEventListener('click', () => {
+            const ssid = document.getElementById('wifi-ssid').value;
+            const password = document.getElementById('wifi-pass').value;
+
+            if (!ssid) {
+                alert('Wi-Fi SSID cannot be empty.');
+                return;
+            }
+
+            if (confirm(`Are you sure you want to send these credentials to the ESP32?\n\nSSID: ${ssid}\n\nThe device will reboot.`)) {
+                const payload = JSON.stringify({ ssid, password });
+                const message = new Paho.Message(payload);
+                message.destinationName = MQTT_CONFIG_TOPIC;
+                client.send(message);
+                alert('Configuration command sent! The ESP32 should reboot with the new credentials.');
+            }
+        });
+        
+        // Clear Log Button
+        document.getElementById('clear-log-btn').addEventListener('click', () => {
+             if (confirm('Are you sure you want to clear the log display on this page?')) {
+                tableBody.innerHTML = '';
+             }
+        });
+        
+        // --- Initialize Page ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeMap();
+            showTab('log'); // Show the log tab by default
+        });
+    </script>
+</body>
+</html>
