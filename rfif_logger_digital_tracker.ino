@@ -1,7 +1,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <WiFi.h>
-#include <WebServer.h> // For serving downloads
+#include <WebServer.h>
 #include <Wire.h>
 #include <RTClib.h>
 #include <Adafruit_PN532.h>
@@ -10,76 +10,68 @@
 #include <ArduinoJson.h>
 
 // =================== PIN Definitions ===================
-#define LED_PIN 2       // Built-in LED on most ESP32 boards
-#define SD_CS_PIN 5     // SD Card Chip Select pin
-
+#define LED_PIN 26      // Built-in LED on most ESP32 boards
+#define SD_CS_PIN 5
+#define GPS_RX 16
+#define GPS_TX 17
 
 // =================== Configuration ===================
 const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
 const char* mqtt_data_topic = "esp32/rfid/data";
 const char* mqtt_status_topic = "esp32/rfid/status";
-const char* mqtt_command_topic = "esp32/rfid/command"; // For receiving all commands
+const char* mqtt_command_topic = "esp32/rfid/command";
 
 // =================== Global Objects ===================
-File dataFile;
 WebServer server(80);
 RTC_DS1307 rtc;
 Adafruit_PN532 nfc(-1, -1);
-#define GPS_RX 16
-#define GPS_TX 17
 HardwareSerial gpsSerial(2);
 TinyGPSPlus gps;
 WiFiClient espClient;
 PubSubClient client(espClient);
 unsigned long lastStatusPublish = 0;
-const long statusPublishInterval = 30000; // Publish status every 30 seconds
+const long statusPublishInterval = 30000;
 
 // =================== Function Prototypes ===================
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void publishStatus();
+String readFile(fs::FS &fs, const char * path);
+void writeFile(fs::FS &fs, const char * path, const char * message);
+void logToSD(const String& timestamp, const String& eventType, const String& identifier, const String& details);
 
 // =================== SD Card Functions ===================
-void logToSD(String dataLine) {
-    dataFile = SD.open("/datalog.csv", FILE_APPEND);
+void logToSD(const String& timestamp, const String& eventType, const String& identifier, const String& details) {
+    File dataFile = SD.open("/datalog.csv", FILE_APPEND);
     if (dataFile) {
-        dataFile.println(dataLine);
+        dataFile.print(timestamp);
+        dataFile.print(",");
+        dataFile.print(eventType);
+        dataFile.print(",");
+        dataFile.print(identifier);
+        dataFile.print(",");
+        dataFile.println(details);
         dataFile.close();
-        Serial.println("Logged to SD card.");
     } else {
         Serial.println("Error opening datalog.csv for appending.");
     }
 }
 
-// Reads a file from the SD card into a String
 String readFile(fs::FS &fs, const char * path) {
     File file = fs.open(path);
-    if (!file || file.isDirectory()) {
-        return String();
-    }
+    if (!file || file.isDirectory()) { return String(); }
     String fileContent;
-    while (file.available()) {
-        fileContent += (char)file.read();
-    }
+    while (file.available()) { fileContent += (char)file.read(); }
     file.close();
     return fileContent;
 }
 
-// Writes a String to a file on the SD card
 void writeFile(fs::FS &fs, const char * path, const char * message) {
     File file = fs.open(path, FILE_WRITE);
-    if (!file) {
-        Serial.println("Failed to open file for writing");
-        return;
-    }
-    if (file.print(message)) {
-        Serial.println("File written");
-    } else {
-        Serial.println("Write failed");
-    }
+    if (!file) { Serial.println("Failed to open file for writing"); return; }
+    if (file.print(message)) { Serial.println("File written"); } else { Serial.println("Write failed"); }
     file.close();
 }
-
 
 // =================== Web Server Handlers ===================
 void handleDownloadLog() {
@@ -95,20 +87,14 @@ void handleDownloadLog() {
 
 // =================== Wi-Fi & MQTT Setup ===================
 void setup_wifi() {
-    // Read Wi-Fi config from SD card
     String wifiConfig = readFile(SD, "/config/wifi.json");
-    String ssid;
-    String password;
-
+    String ssid, password;
     if (wifiConfig.length() > 0) {
         StaticJsonDocument<128> doc;
         deserializeJson(doc, wifiConfig);
         ssid = doc["ssid"].as<String>();
         password = doc["password"].as<String>();
-        Serial.println("Read Wi-Fi config from SD.");
     } else {
-        // If file doesn't exist, create it with default values
-        Serial.println("Wi-Fi config not found, creating default.");
         ssid = "CONRAD";
         password = "ROBOTICS";
         StaticJsonDocument<128> doc;
@@ -118,25 +104,15 @@ void setup_wifi() {
         serializeJson(doc, defaultConfig);
         writeFile(SD, "/config/wifi.json", defaultConfig.c_str());
     }
-
-    Serial.print("Connecting to: ");
-    Serial.println(ssid);
     WiFi.begin(ssid.c_str(), password.c_str());
-
+    Serial.print("Connecting to: "); Serial.println(ssid);
     int attempt = 0;
-    while (WiFi.status() != WL_CONNECTED && attempt < 20) {
-        delay(500);
-        Serial.print(".");
-        attempt++;
+    while (WiFi.status() != WL_CONNECTED && attempt++ < 20) {
+        delay(500); Serial.print(".");
     }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nWiFi Connected!");
-        Serial.print("IP: ");
-        Serial.println(WiFi.localIP());
-    } else {
-        Serial.println("\nFailed to connect to WiFi.");
-    }
+    if(WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi Connected!"); Serial.print("IP: "); Serial.println(WiFi.localIP());
+    } else { Serial.println("\nFailed to connect.");}
 }
 
 void reconnect_mqtt() {
@@ -146,14 +122,9 @@ void reconnect_mqtt() {
         if (client.connect(clientId.c_str())) {
             Serial.println("connected!");
             client.subscribe(mqtt_command_topic);
-            Serial.print("Subscribed to command topic: ");
-            Serial.println(mqtt_command_topic);
-            // Publish status immediately on connection
             publishStatus();
         } else {
-            Serial.print("failed, rc=");
-            Serial.print(client.state());
-            Serial.println(" try again in 5 seconds");
+            Serial.print("failed, rc="); Serial.print(client.state()); Serial.println(" try again in 5s");
             delay(5000);
         }
     }
@@ -164,67 +135,39 @@ void setup() {
     Serial.begin(115200);
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW);
-    
-    Wire.begin(21, 22);
-
-    // --- Initialize SD Card ---
-    if (!SD.begin(SD_CS_PIN)) {
-        Serial.println("Card Mount Failed. Halting.");
-        while (1);
-    }
-    // Create config directory if it doesn't exist
-    if (!SD.exists("/config")) {
-        SD.mkdir("/config");
-    }
-    Serial.println("SD Card initialized.");
-    
-    // --- Initialize Peripherals ---
+    Wire.begin();
+    if (!SD.begin(SD_CS_PIN)) { Serial.println("Card Mount Failed!"); while(1); }
+    if (!SD.exists("/config")) { SD.mkdir("/config"); }
     if (!rtc.begin()) { Serial.println("Couldn't find RTC!"); }
     if (!rtc.isrunning()) { rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); }
-    
     nfc.begin();
     if (!nfc.getFirmwareVersion()) { Serial.println("Didn't find PN532!"); while(1); }
     nfc.SAMConfig();
-
     gpsSerial.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX);
-    
-    // --- Connect & Start Services ---
     setup_wifi();
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(mqttCallback);
     server.on("/downloadlog", handleDownloadLog);
     server.begin();
-    Serial.println("HTTP server started.");
 }
 
 // =================== MAIN LOOP ===================
 void loop() {
-    // Handle networking
     if (WiFi.status() == WL_CONNECTED) {
-        if (!client.connected()) {
-            reconnect_mqtt();
-        }
+        if (!client.connected()) { reconnect_mqtt(); }
         client.loop();
     }
     server.handleClient();
-
-    // Periodically publish status
     if (millis() - lastStatusPublish > statusPublishInterval) {
         lastStatusPublish = millis();
-        if (client.connected()) {
-            publishStatus();
-        }
+        if (client.connected()) { publishStatus(); }
     }
-
-    // --- GPS & RFID Logic ---
     while(gpsSerial.available() > 0) gps.encode(gpsSerial.read());
 
     uint8_t uid[7];
     uint8_t uidLength;
     if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 100)) {
-        // Blink LED on scan
         digitalWrite(LED_PIN, HIGH);
-        
         String newUID = "";
         for (uint8_t i = 0; i < uidLength; i++) {
             if (uid[i] < 0x10) newUID += "0";
@@ -232,86 +175,70 @@ void loop() {
         }
         newUID.toUpperCase();
         
-        Serial.print("Card Scanned: ");
-        Serial.println(newUID);
-        
         DateTime now = rtc.now();
         char timestamp[20];
         sprintf(timestamp, "%04d-%02d-%02d %02d:%02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
         String latitude = gps.location.isValid() ? String(gps.location.lat(), 6) : "0.0";
         String longitude = gps.location.isValid() ? String(gps.location.lng(), 6) : "0.0";
         
-        // --- Log to SD Card ---
-        String csvLine = String(timestamp) + "," + newUID + "," + latitude + "," + longitude;
-        logToSD(csvLine);
+        // --- FEATURE: Look up registered name ---
+        String namesJson = readFile(SD, "/config/names.json");
+        DynamicJsonDocument namesDoc(1024);
+        deserializeJson(namesDoc, namesJson);
+        String displayName = namesDoc[newUID] | "Unknown"; // Default to "Unknown" if not found
+
+        // Log to SD card with the name
+        logToSD(timestamp, "SCAN", newUID, displayName + " (" + latitude + "," + longitude + ")");
         
-        // --- Publish to MQTT ---
+        // Publish to MQTT with the name
         StaticJsonDocument<256> doc;
         doc["timestamp"] = timestamp;
         doc["identifier"] = newUID;
+        doc["displayName"] = displayName; // Send the name to the dashboard
         doc["latitude"] = latitude;
         doc["longitude"] = longitude;
         char jsonBuffer[256];
         serializeJson(doc, jsonBuffer);
-        if (client.connected()) {
-            client.publish(mqtt_data_topic, jsonBuffer);
-        }
+        if (client.connected()) client.publish(mqtt_data_topic, jsonBuffer);
         
-        delay(100); // LED on time
+        delay(100);
         digitalWrite(LED_PIN, LOW);
-        delay(1000); // Debounce delay to prevent multiple quick scans
+        delay(1000);
     }
 }
 
-
 // =================== Command Handling ===================
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    if (String(topic) != String(mqtt_command_topic)) {
-        return; // Ignore messages not on the command topic
-    }
-
+    if (String(topic) != String(mqtt_command_topic)) { return; }
     StaticJsonDocument<256> doc;
     deserializeJson(doc, payload, length);
     String action = doc["action"];
-
-    Serial.print("Command received: ");
-    Serial.println(action);
+    Serial.print("Command received: "); Serial.println(action);
 
     if (action == "update_wifi") {
-        String ssid = doc["ssid"];
-        String pass = doc["password"];
+        String ssid = doc["ssid"]; String pass = doc["password"];
         StaticJsonDocument<128> wifiDoc;
-        wifiDoc["ssid"] = ssid;
-        wifiDoc["password"] = pass;
-        String newConfig;
-        serializeJson(wifiDoc, newConfig);
+        wifiDoc["ssid"] = ssid; wifiDoc["password"] = pass;
+        String newConfig; serializeJson(wifiDoc, newConfig);
         writeFile(SD, "/config/wifi.json", newConfig.c_str());
-        Serial.println("Wi-Fi credentials updated. Rebooting in 3s.");
-        delay(3000);
-        ESP.restart();
-
+        delay(3000); ESP.restart();
     } else if (action == "register_card") {
-        String uid = doc["uid"];
-        String name = doc["name"];
+        String uid = doc["uid"]; String name = doc["name"];
         String namesJson = readFile(SD, "/config/names.json");
-
         DynamicJsonDocument namesDoc(1024);
-        if (namesJson.length() > 0) {
-            deserializeJson(namesDoc, namesJson);
-        }
-        namesDoc[uid] = name; // Add or update the name for the UID
-
-        String newNamesJson;
-        serializeJson(namesDoc, newNamesJson);
+        if (namesJson.length() > 0) deserializeJson(namesDoc, namesJson);
+        namesDoc[uid] = name;
+        String newNamesJson; serializeJson(namesDoc, newNamesJson);
         writeFile(SD, "/config/names.json", newNamesJson.c_str());
         
-        Serial.println("Card name registered.");
-        publishStatus(); // Publish updated status with new names list
-
+        DateTime now = rtc.now(); char timestamp[20];
+        sprintf(timestamp, "%04d-%02d-%02d %02d:%02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
+        logToSD(timestamp, "REGISTER", uid, "Assigned name: " + name);
+        
+        publishStatus();
     } else if (action == "clear_log") {
         SD.remove("/datalog.csv");
-        Serial.println("Data log file cleared.");
-        publishStatus(); // Publish updated status
+        publishStatus();
     }
 }
 
@@ -320,25 +247,17 @@ void publishStatus() {
     doc["ip"] = WiFi.localIP().toString();
     doc["ssid"] = WiFi.SSID();
     doc["uptime_ms"] = millis();
-    
-    // SD Card Info
     if (SD.cardType() != CARD_NONE) {
         doc["sd_total_gb"] = (float)SD.cardSize() / (1024 * 1024 * 1024);
         doc["sd_used_gb"] = (float)SD.usedBytes() / (1024 * 1024 * 1024);
-    } else {
-        doc["sd_status"] = "Not Found";
-    }
-
-    // Read registered names and add them to the status
+    } else { doc["sd_status"] = "Not Found"; }
     String namesJson = readFile(SD, "/config/names.json");
     if (namesJson.length() > 0) {
         StaticJsonDocument<512> namesDoc;
         deserializeJson(namesDoc, namesJson);
         doc["registered_names"] = namesDoc;
     }
-
     char buffer[1024];
     serializeJson(doc, buffer);
     client.publish(mqtt_status_topic, buffer);
-    Serial.println("Status published.");
 }

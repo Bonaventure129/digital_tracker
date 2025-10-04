@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html lang="en"> <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live RFID Tracking Dashboard</title>
@@ -10,52 +9,97 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
-        #map { height: 75vh; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
-        .tab-btn { transition: background-color 0.2s, color 0.2s; }
-        .tab-btn.active { background-color: #4f46e5; color: white; }
-        .tab-btn:not(.active) { background-color: #e0e7ff; color: #4338ca; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+        }
+        #map { height: 75vh; border-radius: 0.75rem; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
-        .highlight { animation: fadein 0.7s ease-out; }
-        @keyframes fadein { from { background-color: #c7d2fe; } to { background-color: transparent; } }
+
+        /* --- FIX FOR DARK MODE TABS --- */
+        .tab-btn {
+            transition: background-color 0.2s, color 0.2s;
+            background-color: #e0e7ff; /* Light mode inactive */
+            color: #4338ca;
+        }
+        .dark .tab-btn {
+            background-color: #374151; /* Dark mode inactive */
+            color: #a5b4fc;
+        }
+        .tab-btn.active {
+            background-color: #4f46e5; /* Light mode active */
+            color: white;
+        }
+        .dark .tab-btn.active {
+            background-color: #6366f1; /* Dark mode active */
+            color: white;
+        }
+        /* --- END OF FIX --- */
+
+        .highlight { animation: fadein-light 0.7s ease-out; }
+        .dark .highlight { animation: fadein-dark 0.7s ease-out; }
+
+        /* FIX: Keyframes must be defined globally */
+        @keyframes fadein-light { 
+            from { background-color: #c7d2fe; } 
+            to { background-color: transparent; } 
+        }
+        @keyframes fadein-dark { 
+            from { background-color: #3730a3; } 
+            to { background-color: transparent; } 
+        }
+
+        /* Dark mode for Leaflet map tiles */
+        .dark .leaflet-tile-pane { 
+            filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7); 
+        }
     </style>
 </head>
-<body class="p-4 md:p-6">
+<body class="bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 p-4 md:p-6">
     <div class="max-w-7xl mx-auto">
-        <div class="text-center mb-4 text-sm font-bold text-gray-500">
+        <div class="text-center mb-4 text-sm font-bold text-gray-500 dark:text-gray-400">
             Powered by CONRAD ROBOTICS
         </div>
 
-        <header class="bg-white text-slate-800 p-6 rounded-xl shadow-lg mb-6">
-            <h1 class="text-3xl font-bold text-indigo-700">Live RFID Tracking Dashboard</h1>
-            <p class="mt-1 text-slate-500">
-                Listening for data from your ESP32 device.
-            </p>
-            <div id="status" class="mt-4 text-sm font-medium p-2 rounded-lg inline-block bg-yellow-400 text-yellow-800">
-                STATUS: Connecting to MQTT Broker...
+        <header class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg mb-6 flex justify-between items-start">
+            <div>
+                <h1 class="text-3xl font-bold text-indigo-700 dark:text-indigo-400">Live RFID Tracking Dashboard</h1>
+                <p class="mt-1 text-slate-500 dark:text-slate-400">Listening for data from your ESP32 device.</p>
+                <div class="mt-4 flex flex-wrap gap-2 text-sm">
+                    <div id="mqtt-status" class="font-medium p-2 rounded-lg inline-block bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">
+                        MQTT: Connecting...
+                    </div>
+                    <div id="device-status" class="font-medium p-2 rounded-lg inline-block bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                        DEVICE: Waiting for status...
+                    </div>
+                </div>
             </div>
+            <button id="theme-toggle" class="p-2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 focus:outline-none">
+                <svg id="theme-icon-light" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                <svg id="theme-icon-dark" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+            </button>
         </header>
 
-        <div class="mb-6 flex space-x-2 p-1 bg-indigo-100 rounded-lg">
-            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold active" onclick="showTab('log')">Live Log</button>
+        <div class="mb-6 flex space-x-2 p-1 bg-indigo-100 dark:bg-slate-800 rounded-lg">
+            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('log')">Live Log</button>
             <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('map')">Map View</button>
-            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('settings')">Device Settings & Registration</button>
+            <button class="tab-btn flex-1 py-2 px-4 rounded-md font-semibold" onclick="showTab('settings')">Settings</button>
         </div>
 
         <main>
-            <div id="log" class="tab-content active bg-white p-6 rounded-xl shadow-lg">
-                <h2 class="text-xl font-semibold text-gray-800 mb-4">Real-time Scan Data Log</h2>
+            <div id="log" class="tab-content active bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4">Real-time Scan Data Log</h2>
                 <div class="max-h-[70vh] overflow-y-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="sticky top-0 bg-gray-50 z-10">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="sticky top-0 bg-gray-50 dark:bg-slate-700 z-10">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Identifier</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Timestamp</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Event / Identifier</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Details / Location</th>
                             </tr>
                         </thead>
-                        <tbody id="log-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                        <tbody id="log-table-body" class="divide-y divide-gray-200 dark:divide-gray-700"></tbody>
                     </table>
                 </div>
             </div>
@@ -63,53 +107,53 @@
             <div id="map" class="tab-content"></div>
 
             <div id="settings" class="tab-content">
-                <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
-                    <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">ESP32 Device Status</h2>
+                 <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg mb-6">
+                    <h2 class="text-xl font-semibold border-b dark:border-slate-600 pb-2 mb-4">ESP32 Device Status</h2>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div><span class="font-bold text-gray-600">IP Address:</span> <span id="status-ip" class="font-mono text-indigo-700">Waiting...</span></div>
-                        <div><span class="font-bold text-gray-600">Connected Wi-Fi:</span> <span id="status-ssid" class="font-mono text-indigo-700">Waiting...</span></div>
-                        <div><span class="font-bold text-gray-600">SD Card Usage:</span> <span id="status-sd" class="font-mono text-indigo-700">Waiting...</span></div>
-                        <div><span class="font-bold text-gray-600">Device Uptime:</span> <span id="status-uptime" class="font-mono text-indigo-700">Waiting...</span></div>
+                        <div><span class="font-bold">IP:</span> <span id="status-ip" class="font-mono text-indigo-600 dark:text-indigo-400">...</span></div>
+                        <div><span class="font-bold">Wi-Fi:</span> <span id="status-ssid" class="font-mono text-indigo-600 dark:text-indigo-400">...</span></div>
+                        <div><span class="font-bold">SD Card:</span> <span id="status-sd" class="font-mono text-indigo-600 dark:text-indigo-400">...</span></div>
+                        <div><span class="font-bold">Uptime:</span> <span id="status-uptime" class="font-mono text-indigo-600 dark:text-indigo-400">...</span></div>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="bg-white p-6 rounded-xl shadow-lg">
-                        <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Device Management</h2>
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg">
+                        <h2 class="text-xl font-semibold border-b dark:border-slate-600 pb-2 mb-4">Device Management</h2>
                         <div class="space-y-4">
-                            <a id="download-log-btn" href="#" target="_blank" class="block w-full text-center bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow-md opacity-50 cursor-not-allowed">Download Full Log (.csv)</a>
+                            <a id="download-log-btn" href="#" target="_blank" class="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md opacity-50 cursor-not-allowed">Download Full Log (.csv)</a>
                             <button id="clear-log-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg shadow-md">Clear All SD Card Logs</button>
                         </div>
                     </div>
                     
-                    <div class="bg-white p-6 rounded-xl shadow-lg">
-                        <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Register RFID Tag</h2>
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg">
+                        <h2 class="text-xl font-semibold border-b dark:border-slate-600 pb-2 mb-4">Register RFID Tag</h2>
                         <div class="space-y-4">
                             <div>
-                                <label for="reg-uid" class="block text-sm font-medium text-gray-700">Last Scanned UID</label>
-                                <input type="text" id="reg-uid" class="mt-1 block w-full px-3 py-2 bg-gray-100 border rounded-md" readonly>
+                                <label for="reg-uid" class="block text-sm font-medium">Last Scanned UID</label>
+                                <input type="text" id="reg-uid" class="mt-1 block w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 rounded-md" readonly>
                             </div>
                             <div>
-                                <label for="reg-name" class="block text-sm font-medium text-gray-700">Assign Name</label>
-                                <input type="text" id="reg-name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="e.g., Main Gate Key">
+                                <label for="reg-name" class="block text-sm font-medium">Assign Name</label>
+                                <input type="text" id="reg-name" class="mt-1 block w-full px-3 py-2 border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 rounded-md" placeholder="e.g., Main Entrance Key">
                             </div>
                             <button id="register-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Register Name</button>
                         </div>
                     </div>
                     
-                    <div class="md:col-span-2 bg-white p-6 rounded-xl shadow-lg">
-                         <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Configure ESP32 Wi-Fi</h2>
-                        <p class="text-sm text-amber-700 bg-amber-100 p-3 rounded-md mb-4">
-                            <strong>Warning:</strong> Submitting will save credentials to the SD card and reboot the device.
+                    <div class="md:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg">
+                         <h2 class="text-xl font-semibold border-b dark:border-slate-600 pb-2 mb-4">Configure ESP32 Wi-Fi</h2>
+                        <p class="text-sm text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/50 p-3 rounded-md mb-4">
+                            <strong>Warning:</strong> Submitting will save credentials and reboot the device.
                         </p>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                             <div class="md:col-span-1">
-                                <label for="wifi-ssid" class="block text-sm font-medium text-gray-700">Wi-Fi Network (SSID)</label>
-                                <input type="text" id="wifi-ssid" class="mt-1 block w-full border border-gray-300 rounded-md p-2">
+                                <label for="wifi-ssid" class="block text-sm font-medium">Wi-Fi Network (SSID)</label>
+                                <input type="text" id="wifi-ssid" class="mt-1 block w-full border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 rounded-md p-2">
                             </div>
                             <div class="md:col-span-1">
-                                <label for="wifi-pass" class="block text-sm font-medium text-gray-700">Password</label>
-                                <input type="password" id="wifi-pass" class="mt-1 block w-full border border-gray-300 rounded-md p-2">
+                                <label for="wifi-pass" class="block text-sm font-medium">Password</label>
+                                <input type="password" id="wifi-pass" class="mt-1 block w-full border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 rounded-md p-2">
                             </div>
                             <button id="wifi-update-btn" class="md:col-span-1 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Update & Reboot</button>
                         </div>
@@ -120,84 +164,96 @@
     </div>
 
     <script>
-        // --- Global State ---
+        // --- Theme Toggle Logic ---
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        const lightIcon = document.getElementById('theme-icon-light');
+        const darkIcon = document.getElementById('theme-icon-dark');
+        const docElement = document.documentElement;
+
+        function applyTheme(theme) {
+            if (theme === 'dark') {
+                docElement.classList.add('dark');
+                darkIcon.classList.remove('hidden');
+                lightIcon.classList.add('hidden');
+            } else {
+                docElement.classList.remove('dark');
+                lightIcon.classList.remove('hidden');
+                darkIcon.classList.add('hidden');
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        applyTheme(savedTheme);
+
+        themeToggleBtn.addEventListener('click', () => {
+            const newTheme = docElement.classList.contains('dark') ? 'light' : 'dark';
+            localStorage.setItem('theme', newTheme);
+            applyTheme(newTheme);
+        });
+
+        // --- Global State & MQTT Config ---
         let esp32_ip = null;
         let registered_names = {};
         let map;
         let lastMarker;
-
-        // --- MQTT Configuration ---
+        let deviceStatusTimeout;
+        
         const MQTT_BROKER_HOST = "broker.hivemq.com";
-        const MQTT_BROKER_PORT = 8884; // Port for WSS (WebSocket Secure)
+        const MQTT_BROKER_PORT = 8884;
         const MQTT_DATA_TOPIC = "esp32/rfid/data";
         const MQTT_STATUS_TOPIC = "esp32/rfid/status";
         const MQTT_COMMAND_TOPIC = "esp32/rfid/command";
         const MQTT_CLIENT_ID = "WebAppClient_" + Math.random().toString(16).substr(2, 8);
 
-        // --- MQTT Client Setup ---
         const client = new Paho.Client(MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_CLIENT_ID);
         client.onConnectionLost = onConnectionLost;
         client.onMessageArrived = onMessageArrived;
-        client.connect({ onSuccess: onConnect, onFailure: onFailure, useSSL: true }); // <-- `onFailure` is now defined below
-
-        // ======================= FIX 1: ADDED MISSING `onFailure` FUNCTION =======================
-        function onFailure(responseObject) {
-            console.error("MQTT Connection Failed:", responseObject.errorMessage);
-            updateStatus(`Connection Failed: ${responseObject.errorMessage}`, "bg-red-100 text-red-800");
-        }
-
+        
         function onConnect() {
-            updateStatus("Connected & Listening for Device", "bg-green-100 text-green-800");
+            updateMqttStatus("Connected", "bg-green-100 text-green-800 dark:bg-green-900/80 dark:text-green-300");
             client.subscribe(MQTT_DATA_TOPIC);
             client.subscribe(MQTT_STATUS_TOPIC);
         }
+        client.connect({ onSuccess: onConnect, onFailure: (r) => updateMqttStatus(`Connection Failed: ${r.errorMessage}`, "bg-red-100 text-red-800 dark:bg-red-900/80 dark:text-red-300"), useSSL: true });
         
         // --- Message Handlers ---
         function onMessageArrived(message) {
             const topic = message.destinationName;
-            const payload = message.payloadString;
-            try {
-                const data = JSON.parse(payload);
-                if (topic === MQTT_DATA_TOPIC) {
-                    handleDataMessage(data);
-                } else if (topic === MQTT_STATUS_TOPIC) {
-                    handleStatusMessage(data);
-                }
-            } catch (e) { console.error("Error processing message:", e); }
+            const data = JSON.parse(message.payloadString);
+
+            if (topic === MQTT_DATA_TOPIC) handleDataMessage(data);
+            else if (topic === MQTT_STATUS_TOPIC) handleStatusMessage(data);
         }
 
         function handleDataMessage(data) {
             document.getElementById('reg-uid').value = data.identifier;
-            const displayName = registered_names[data.identifier] 
-                ? `${registered_names[data.identifier]} (${data.identifier})` 
-                : data.identifier;
-            
-            insertDataRow(data.timestamp, displayName, data.latitude, data.longitude, data.identifier);
-            updateMap(displayName, data.latitude, data.longitude);
+            insertDataRow(data);
+            updateMap(data.displayName || data.identifier, data.latitude, data.longitude);
         }
 
         function handleStatusMessage(data) {
-            console.log("Status update:", data);
+            // FEATURE: Reset timeout because we heard from the device
+            clearTimeout(deviceStatusTimeout);
+            updateDeviceStatus("CONNECTED", "bg-green-100 text-green-800 dark:bg-green-900/80 dark:text-green-300");
+            deviceStatusTimeout = setTimeout(() => {
+                updateDeviceStatus("DISCONNECTED", "bg-red-100 text-red-800 dark:bg-red-900/80 dark:text-red-300");
+            }, 45000); // 45 seconds timeout
+
             esp32_ip = data.ip;
             document.getElementById('status-ip').textContent = data.ip || 'N/A';
             document.getElementById('status-ssid').textContent = data.ssid || 'N/A';
             document.getElementById('status-uptime').textContent = data.uptime_ms ? `${(data.uptime_ms / 1000 / 60).toFixed(2)} mins` : 'N/A';
-            
-            if(data.sd_total_gb) {
+            if (data.sd_total_gb !== undefined) {
                  document.getElementById('status-sd').textContent = `${data.sd_used_gb.toFixed(3)} / ${data.sd_total_gb.toFixed(2)} GB`;
             } else {
                  document.getElementById('status-sd').textContent = data.sd_status || 'N/A';
             }
-
             if (esp32_ip && esp32_ip !== "0.0.0.0") {
                 const downloadBtn = document.getElementById('download-log-btn');
                 downloadBtn.href = `http://${esp32_ip}/downloadlog`;
                 downloadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             }
-            
-            if (data.registered_names) {
-                registered_names = data.registered_names;
-            }
+            if (data.registered_names) registered_names = data.registered_names;
         }
         
         // --- UI & Event Listeners ---
@@ -236,80 +292,80 @@
         }
 
         // --- Helper Functions ---
-        function insertDataRow(timestamp, displayName, lat, lon, rawIdentifier) {
+        function insertDataRow(data) {
             const newRow = document.getElementById('log-table-body').insertRow(0);
             newRow.className = "highlight";
-            newRow.insertCell().textContent = timestamp;
+            newRow.insertCell().textContent = data.timestamp;
 
-            const nameCell = newRow.insertCell();
-            nameCell.textContent = displayName;
-            
-            // If the name is a registered name, make the raw ID smaller
-            if (displayName !== rawIdentifier) {
-                 nameCell.innerHTML = `${registered_names[rawIdentifier]} <span class="text-xs text-gray-400">(${rawIdentifier})</span>`;
+            const eventCell = newRow.insertCell();
+            const detailsCell = newRow.insertCell();
+
+            const displayName = data.displayName || data.identifier;
+            // Show UID in a smaller, dimmer font if a name exists
+            if (data.displayName) {
+                eventCell.innerHTML = `${displayName} <span class="text-xs text-gray-400 dark:text-gray-500">(${data.identifier})</span>`;
+            } else {
+                eventCell.textContent = displayName;
             }
 
-            const cellLoc = newRow.insertCell();
-            if (lat !== "0.0" && lon !== "0.0") {
-                // ======================= FIX 2: CORRECTED GOOGLE MAPS LINK =======================
-                cellLoc.innerHTML = `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" class="text-blue-600 hover:underline">View Map</a>`;
+            if (data.latitude !== "0.0") {
+                detailsCell.innerHTML = `<a href="https://www.google.com/maps?q=${data.latitude},${data.longitude}" target="_blank" class="text-indigo-600 dark:text-indigo-400 hover:underline">View on Map</a>`;
             } else {
-                cellLoc.textContent = "N/A";
+                detailsCell.textContent = "Location N/A";
             }
         }
         
         function onConnectionLost(responseObject) {
             if (responseObject.errorCode !== 0) {
-                updateStatus("Connection Lost. Reconnecting...", "bg-red-100 text-red-800");
+                updateMqttStatus("Connection Lost", "bg-red-100 text-red-800 dark:bg-red-900/80 dark:text-red-300");
             }
         }
         
-        function updateStatus(message, bgColor) {
-            const statusEl = document.getElementById("status");
-            statusEl.textContent = `STATUS: ${message}`;
-            statusEl.className = `mt-4 text-sm font-medium p-2 rounded-lg inline-block ${bgColor}`;
+        function updateMqttStatus(message, className) {
+            const statusEl = document.getElementById("mqtt-status");
+            statusEl.textContent = `MQTT: ${message}`;
+            statusEl.className = `font-medium p-2 rounded-lg inline-block ${className}`;
+        }
+        
+        function updateDeviceStatus(message, className) {
+            const statusEl = document.getElementById("device-status");
+            statusEl.textContent = `DEVICE: ${message}`;
+            statusEl.className = `font-medium p-2 rounded-lg inline-block ${className}`;
         }
 
         function showTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+
             document.getElementById(tabName).classList.add('active');
             document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
-            // Invalidate map size when tab is shown to prevent gray tiles
-            if (tabName === 'map' && map) {
-                setTimeout(() => map.invalidateSize(), 10);
-            }
+            
+            if (tabName === 'map' && map) setTimeout(() => map.invalidateSize(), 10);
         }
-
-        // ======================= FIX 2 (CONT.): MAP INITIALIZATION & UPDATE LOGIC =======================
+        
         function initializeMap() {
-            map = L.map('map').setView([9.0765, 7.3986], 6); // Default view (e.g., Nigeria)
+            map = L.map('map').setView([9.0765, 7.3986], 6); // Default view (Abuja, Nigeria)
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                attribution: '© OpenStreetMap'
             }).addTo(map);
         }
 
         function updateMap(displayName, lat, lon) {
-            if (lat === "0.0" || lon === "0.0" || !map) return;
-            
+            if (lat === "0.0" || !map) return;
             const latNum = parseFloat(lat);
             const lonNum = parseFloat(lon);
-
-            if (lastMarker) {
-                map.removeLayer(lastMarker);
-            }
-
+            if (lastMarker) map.removeLayer(lastMarker);
             lastMarker = L.marker([latNum, lonNum]).addTo(map)
                 .bindPopup(`<b>Last Scan:</b><br>${displayName}`)
                 .openPopup();
-            
             map.setView([latNum, lonNum], 15);
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            showTab('log');
             initializeMap();
+            showTab('log');
         });
+
     </script>
 </body>
 </html>
